@@ -1,0 +1,6 @@
+pandas>=2.0
+openpyxl>=3.1
+requests>=2.31
+# 真实对接 Amazon 时再装（离线 mock 模式不需要）
+# python-amazon-sp-api>=1.0
+pytest>=8.0
