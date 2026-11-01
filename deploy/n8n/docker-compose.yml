@@ -1,0 +1,39 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      # 宿主机端口:容器端口
+      - "5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=Asia/Shanghai
+      - TZ=Asia/Shanghai
+      # 本地用 http://localhost 访问时关掉 secure cookie，否则登录后会被踢出
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+    volumes:
+      # 命名卷：容器删了数据还在
+      - n8n_data:/home/node/.n8n
+    extra_hosts:
+      # 让容器能访问宿主机上的服务（如本机 8000 端口的日报 API）
+      - "host.docker.internal:host-gateway"
+
+  api:
+    build: ../api
+    container_name: ops-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+      - TZ=Asia/Shanghai
+      - FEISHU_WEBHOOK=${FEISHU_WEBHOOK:-}
+      - FEISHU_SECRET=${FEISHU_SECRET:-}
+    volumes:
+      # 挂载整个项目目录：改代码即时生效，报表和数据库落在宿主机
+      - ../../:/app
+
+
+volumes:
+  n8n_data:

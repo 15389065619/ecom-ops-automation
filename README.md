@@ -52,6 +52,51 @@ python -m ops_automation --source spapi --days 7
 
 `SpApiSource` 只负责把订单拉成统一表结构，成本/广告/库存仍从内部 CSV（可替换成 ERP 导出、Advertising API、FBA Inventory API），管道代码不用改。
 
+## 定时调度与 API 服务（deploy/）
+
+生产形态是「n8n 负责何时跑，Python 负责算」，两个容器通过 Docker Compose 编排：
+
+```
+n8n（5678） --cron 0 8 * * *--> ops-api（8000） --POST /run-report--> pipeline --> SQLite/Excel
+                                                                  \--> 飞书机器人
+```
+
+启动（只需一次，之后随 Docker Desktop 自启）：
+
+```powershell
+cd deploy\n8n
+docker compose up -d
+docker compose ps                     # 看到 n8n 与 ops-api 都是 Up
+```
+
+工作流节点链：`Schedule Trigger → 调用日报API → 飞书`。
+
+### 日常运维
+
+```powershell
+docker compose ps                      # 容器状态
+docker compose logs -f n8n             # 实时日志
+docker compose restart n8n             # 重启（改工作流后用）
+docker compose down                    # 停止（数据卷保留）
+docker exec n8n n8n export:workflow --id=<id> --output=/tmp/wf.json   # 导出工作流备份
+```
+
+### 排错顺序
+
+1. **容器活着吗**：`docker compose ps`，两个都得 Up；Docker Desktop 没启动时全部停摆。
+2. **API 通吗**：`docker exec n8n node -e "require('http').get('http://host.docker.internal:8000/health',r=>console.log(r.statusCode))"`
+3. **这次跑成没跑成**：查看 `docker exec n8n sh -c "tail -n 50 /home/node/.n8n/n8nEventLog.log"`，找 `n8n.workflow.success` / `n8n.workflow.failed` 与 `errorMessage`。
+4. **飞书侧**：单独 POST 一次 Webhook，返回 `code: 0` 才算通；机器人开了关键词校验时，消息里必须包含关键词（本机设为「日报」）。
+
+### 两个已经踩过的坑
+
+- **表达式里的 `}}`**：n8n 表达式解析器把 `}}` 当成结束符。写成 `JSON.stringify({ ... content:{ ... } })` 时会因内层两个大括号相邻而提前截断，报 `ExpressionError: invalid syntax`。解法是在闭合大括号之间留空格，例如 `content:{ text:'...' } })`。
+- **容器访问宿主机**：Linux 容器默认不认识 `host.docker.internal`，需要在 compose 加 `extra_hosts: ["host.docker.internal:host-gateway"]`；否则 API 节点会连接超时。
+
+### 不想用 Docker 时
+
+`start-api.bat` 可在宿主机直接起 API（需保证 8000 端口空闲），此时 n8n 的 API 节点地址仍是 `http://host.docker.internal:8000/run-report?days=30`，无需改动。
+
 ## 口径说明
 
 | 指标 | 公式 |
@@ -74,7 +119,11 @@ src/ops_automation/
   db.py        SQLite 幂等 upsert，重复跑不重复计账
   report.py    openpyxl 多 Sheet 报表 + CSV
   notify.py    飞书自定义机器人（支持加签）
+  api.py       FastAPI 接口（POST /run-report、GET /health）
   cli.py       命令行入口
+deploy/
+  api/         API 服务镜像（python:3.11-slim + 依赖预装）
+  n8n/         n8n + ops-api 的 docker-compose 编排
 tests/         8 个用例覆盖利润口径、告警、报表、幂等
 ```
 
