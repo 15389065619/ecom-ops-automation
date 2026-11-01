@@ -26,7 +26,7 @@ from .sources import AD_COLUMNS, INVENTORY_COLUMNS, build_source
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ops-report", description="跨境电商运营日报自动化")
-    parser.add_argument("--source", choices=["mock", "spapi"], default="mock", help="数据源，默认 mock 离线数据")
+    parser.add_argument("--source", choices=["mock", "erp", "spapi"], default="mock", help="数据源：mock 离线数据 / erp 走 ERP 开放 API / spapi 直连 Amazon")
     parser.add_argument("--date", default=None, help="报表截止日期 YYYY-MM-DD，默认今天")
     parser.add_argument("--days", type=int, default=30, help="统计窗口天数，默认 30")
     parser.add_argument("--base-dir", default=None, help="项目根目录，默认自动定位")

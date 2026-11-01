@@ -39,7 +39,24 @@ python scripts/build_dashboard.py      # 从 SQLite 导出 docs/assets/data.js
 gh repo create <仓库名> --public --source . --remote origin --push
 ```
 
-## 接真实 Amazon 数据
+## 接真实数据：优先走 ERP，不直接碰 SP-API
+
+企业实际选型：**通过 ERP（领星/积加等）开放 API 间接获取亚马逊数据**，而不是自己接 SP-API。
+原因：SP-API 开发者审核需 1-2 周、PII 数据需额外合规评估、SigV4+LWA 双重认证维护成本高；
+ERP 已封装这些，调用方只需 Bearer token + RESTful JSON。
+
+### 方式一：ERP 开放 API（推荐）
+
+```powershell
+$env:ERP_API_BASE_URL="https://openapi.lingxing.com"
+$env:ERP_API_TOKEN="你的 ERP token"
+python -m ops_automation --source erp --days 30
+```
+
+`ErpSource` 调 `/api/v1/orders`（带分页），把 ERP 字段（order_no/site/qty/price...）映射成统一表结构。
+未配置凭证时自动降级读取 `data/mock/erp_response.json`，保证无凭证也能演示。
+
+### 方式二：直连 SP-API（有资质时）
 
 ```powershell
 pip install "python-amazon-sp-api"
@@ -50,7 +67,8 @@ $env:SPAPI_REGION="NA"
 python -m ops_automation --source spapi --days 7
 ```
 
-`SpApiSource` 只负责把订单拉成统一表结构，成本/广告/库存仍从内部 CSV（可替换成 ERP 导出、Advertising API、FBA Inventory API），管道代码不用改。
+`SpApiSource` 用 `python-amazon-sp-api` 处理 SigV4 签名和 LWA 认证，只拉订单主表；
+成本/广告/库存仍从内部 CSV 补齐（可替换成 Advertising API、FBA Inventory API），管道代码不用改。
 
 ## 定时调度与 API 服务（deploy/）
 
@@ -116,7 +134,7 @@ docker exec n8n n8n export:workflow --id=<id> --output=/tmp/wf.json   # 导出�
 
 ```
 src/ops_automation/
-  sources.py   数据源适配（mock CSV / SP-API）
+  sources.py   数据源适配（mock / ERP 开放 API / SP-API 三选一）
   pipeline.py  清洗、成本与广告关联、利润计算、聚合、告警
   db.py        SQLite 幂等 upsert，重复跑不重复计账
   report.py    openpyxl 多 Sheet 报表 + CSV
@@ -144,5 +162,5 @@ $env:PYTHONPATH="src"; python -m pytest -q
 | HTTP API / JSON / JWT 认证 | `sources.py` 走 SP-API LWA OAuth，`notify.py` 走 Webhook + HMAC 签名 |
 | 用 AI 工具辅助开发并检查生成代码 | 代码由 Codex 类工具生成后补测试与口径校验，`tests/` 即验收入口 |
 | SQL / Git | SQLite upsert 去重、报表留痕表 `report_runs` |
-| 对接 ERP / 平台 API / 飞书 | `sources.py` 可插拔数据源 + `notify.py` 飞书卡片 |
+| 对接 ERP / 平台 API / 飞书 | `sources.py` 可插拔数据源（优先 ERP 开放 API，可选 SP-API） + `notify.py` 飞书卡片 |
 | 异常处理、使用说明、非技术同事可用 | `--dry-run` 预览、报表即产物、README 即操作手册 |

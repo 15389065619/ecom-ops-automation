@@ -19,6 +19,8 @@ class Settings:
     spapi_lwa_app_id: str
     spapi_lwa_client_secret: str
     spapi_region: str
+    erp_api_base_url: str
+    erp_api_token: str
 
     @classmethod
     def from_env(cls, project_dir: Path | None = None) -> "Settings":
@@ -34,6 +36,8 @@ class Settings:
             spapi_lwa_app_id=os.getenv("SPAPI_LWA_APP_ID", ""),
             spapi_lwa_client_secret=os.getenv("SPAPI_LWA_CLIENT_SECRET", ""),
             spapi_region=os.getenv("SPAPI_REGION", "NA"),
+            erp_api_base_url=os.getenv("ERP_API_BASE_URL", ""),
+            erp_api_token=os.getenv("ERP_API_TOKEN", ""),
         )
 
 

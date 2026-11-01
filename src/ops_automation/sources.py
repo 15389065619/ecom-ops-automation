@@ -1,7 +1,13 @@
-"""数据源适配层：mock CSV 与 Amazon SP-API 返回同一种表格结构。"""
+"""数据源适配层：mock / ERP / SP-API 返回同一种表格结构。
+
+企业实际选型：不直接接 Amazon SP-API（资质审核慢、PII 合规成本高），
+而是通过已完成 SP-API 对接的 ERP（领星/积加等）开放 API 间接获取数据。
+ERP 已处理 SigV4 签名、PII 脱敏、限流，调用方只需 Bearer token 认证。
+"""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -125,9 +131,107 @@ class SpApiSource:
         }
 
 
-def build_source(name: str, settings) -> MockSource | SpApiSource:
+def build_source(name: str, settings) -> MockSource | ErpSource | SpApiSource:
     if name == "mock":
         return MockSource(settings.data_dir)
+    if name == "erp":
+        return ErpSource(settings)
     if name == "spapi":
         return SpApiSource(settings)
     raise ValueError(f"未知数据源: {name}")
+
+
+class ErpSource:
+    """通过 ERP 开放 API 间接获取亚马逊数据（领星/积加模式）。
+
+    为什么不直接接 SP-API：
+    - SP-API 开发者审核需 1-2 周，PII 数据需额外数据安全评估
+    - SigV4 签名 + LWA 双重认证，维护成本高
+    - ERP 已封装这些，调用方只需 Bearer token + RESTful JSON
+
+    需要配置 ERP_API_BASE_URL 和 ERP_API_TOKEN。
+    未配置时降级读取 data/mock/erp_response.json（模拟 API 响应），保证可演示。
+    """
+
+    name = "erp"
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.base_url = settings.erp_api_base_url.rstrip("/")
+        self.token = settings.erp_api_token
+        self._mock_path = Path(settings.data_dir) / "erp_response.json"
+
+    def _request(self, path: str, params: dict | None = None) -> dict:
+        """带 token 的 GET 请求，失败抛明确异常。"""
+        try:
+            import requests
+        except ImportError as exc:
+            raise RuntimeError("ERP 取数需要: pip install requests") from exc
+
+        headers = {"Authorization": f"Bearer {self.token}"}
+        resp = requests.get(f"{self.base_url}{path}", headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _fetch_orders(self, start: str, end: str) -> list[dict]:
+        """分页拉取订单，演示真实 API 调用。"""
+        orders: list[dict] = []
+        page = 1
+        while True:
+            payload = self._request(
+                "/api/v1/orders",
+                params={"start_date": start, "end_date": end, "page": page, "page_size": 100},
+            )
+            orders.extend(payload.get("data", []))
+            if page >= payload.get("total_pages", 1):
+                break
+            page += 1
+        return orders
+
+    def _mock_response(self) -> dict:
+        """无 ERP 凭证时读取本地模拟响应，保证流程可演示。"""
+        if not self._mock_path.exists():
+            raise RuntimeError(
+                "未配置 ERP_API_BASE_URL/ERP_API_TOKEN，且缺少模拟响应文件 "
+                f"{self._mock_path}。请配置凭证或生成 mock 数据。"
+            )
+        return json.loads(self._mock_path.read_text(encoding="utf-8"))
+
+    def load(self, start: str, end: str) -> DataBundle:
+        if not (self.base_url and self.token):
+            # 演示模式：用本地模拟响应替代真实 API 调用
+            payload = self._mock_response()
+        else:
+            payload = {
+                "orders": self._fetch_orders(start, end),
+                # 真实环境还会调 /api/v1/ads、/api/v1/inventory 等
+            }
+
+        # ERP 字段名与 SP-API 不同，统一映射成管道认识的结构
+        orders = pd.DataFrame(payload.get("orders", []))
+        if not orders.empty:
+            orders = orders.rename(
+                columns={
+                    "order_no": "order_id",
+                    "site": "marketplace",
+                    "sku": "sku",
+                    "order_date": "order_date",
+                    "qty": "quantity",
+                    "price": "item_price",
+                    "shipping": "shipping_credit",
+                    "discount": "promo_discount",
+                    "commission": "referral_fee",
+                    "fba_fee": "fba_fee",
+                    "refund": "refund_amount",
+                    "status": "status",
+                }
+            )
+            orders["order_date"] = pd.to_datetime(orders["order_date"]).dt.normalize()
+        orders = orders.reindex(columns=ORDER_COLUMNS)
+
+        return {
+            "orders": orders,
+            "costs": pd.read_csv(self.settings.data_dir / "costs.csv"),
+            "ads": pd.read_csv(self.settings.data_dir / "ads.csv"),
+            "inventory": pd.read_csv(self.settings.data_dir / "inventory.csv"),
+        }
