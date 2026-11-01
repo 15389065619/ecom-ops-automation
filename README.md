@@ -71,6 +71,8 @@ docker compose ps                     # 看到 n8n 与 ops-api 都是 Up
 
 工作流节点链：`Schedule Trigger → 调用日报API → 飞书`。
 
+`deploy/n8n/workflows/error-notify.json` 是配套的 **Error Workflow**：日报工作流失败时自动触发，向同一个飞书群发送失败告警（含工作流名、执行 ID、错误信息）。它在日报工作流的 `settings.errorWorkflow` 中绑定，导入后发布即可生效。
+
 ### 日常运维
 
 ```powershell

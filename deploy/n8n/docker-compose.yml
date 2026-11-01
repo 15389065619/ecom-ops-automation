@@ -12,6 +12,8 @@ services:
       # 本地用 http://localhost 访问时关掉 secure cookie，否则登录后会被踢出
       - N8N_SECURE_COOKIE=false
       - N8N_DIAGNOSTICS_ENABLED=false
+      # 任意工作流失败时，自动触发这个 Error Workflow 发飞书告警
+      - N8N_DEFAULT_ERROR_WORKFLOW_ID=8jocKxYpAVL5PI0y
     volumes:
       # 命名卷：容器删了数据还在
       - n8n_data:/home/node/.n8n

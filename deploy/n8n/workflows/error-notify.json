@@ -1,0 +1,52 @@
+[
+ {
+  "name": "error-notify",
+  "nodes": [
+   {
+    "name": "Error Trigger",
+    "type": "n8n-nodes-base.errorTrigger",
+    "typeVersion": 1,
+    "position": [
+     240,
+     300
+    ],
+    "parameters": {}
+   },
+   {
+    "name": "HTTP Request",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.5,
+    "position": [
+     480,
+     300
+    ],
+    "parameters": {
+     "method": "POST",
+     "url": "https://open.feishu.cn/open-apis/bot/v2/hook/d76aa6b9-32da-45db-ac5d-460e0f21cb93",
+     "sendBody": true,
+     "contentType": "json",
+     "specifyBody": "json",
+     "jsonBody": "{\"msg_type\":\"text\",\"content\":{\"text\":\"⚠️ 工作流执行失败｜{{ $json.workflow.name }}｜执行ID: {{ $json.execution.id }}｜错误: {{ $json.error.message }}\"}}"
+    }
+   }
+  ],
+  "connections": {
+   "Error Trigger": {
+    "main": [
+     [
+      {
+       "node": "HTTP Request",
+       "type": "main",
+       "index": 0
+      }
+     ]
+    ]
+   }
+  },
+  "settings": {
+   "executionOrder": "v1",
+   "timezone": "Asia/Shanghai"
+  },
+  "pinData": {}
+ }
+]
